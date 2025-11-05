@@ -4,27 +4,40 @@ from flask import Flask, request, redirect, render_template_string, render_templ
 from ip_locator import get_location_from_ip 
 import datetime
 import os 
-# 🟢 Required PostgreSQL driver
+# Required PostgreSQL driver
 import psycopg2 
-from urllib.parse import urlparse # Though not strictly needed now, keeping for safety
+from urllib.parse import urlparse 
 
 app = Flask(__name__)
 
 # --- Configuration ---
 FINAL_DESTINATION_URL = "https://www.google.com/search?q=location+based+facility+provided"
-# NOTE: The line for DATABASE_URL is DELETED from global scope, 
-# as per the fix to prevent premature reading of environment variables.
+# NOTE: DATABASE_URL is NO LONGER defined globally. It is read inside the function.
+
 
 # --- Database Connection Utility ---
 def get_db_connection():
-    # 🟢 CRITICAL FIX: Read the environment variable *inside* the function.
-    db_url = os.environ.get('DATABASE_URL')
+    # 1. Try reading the URL from a Secret File (Most reliable method on Render)
+    secret_file_path = '/etc/secrets/db_url'
+    db_url = None
+    
+    if os.path.exists(secret_file_path):
+        try:
+            with open(secret_file_path, 'r') as f:
+                db_url = f.read().strip()
+        except Exception as e:
+            # If we fail to read the file, fall through to reading the standard env var
+            print(f"Error reading secret file: {e}")
+
+    # 2. Fall back to reading the standard environment variable (the standard link method)
+    if not db_url:
+        db_url = os.environ.get('DATABASE_URL')
     
     if not db_url:
-        # This error is now accurate, indicating a missing config on Render.
+        # This exception is raised if neither the secret file nor the standard env var worked.
         raise Exception("DATABASE_URL environment variable is not set!")
     
-    # Connect to PostgreSQL using the environment variable URL
+    # 3. Connect to PostgreSQL
     # sslmode='require' is essential for secure connections on Render.
     return psycopg2.connect(db_url, sslmode='require')
 
@@ -55,9 +68,9 @@ def init_db():
         print("--- POSTGRES DB INITIALIZED SUCCESSFULLY ---")
         
     except Exception as e:
-        # We need this to print the actual psycopg2 connection error during deployment
+        # We need this print statement during deployment to debug connection failures
         print(f"--- POSTGRES CONNECTION/INIT ERROR: {e} ---")
-        # Re-raise the exception to fail the startup cleanly if needed
+        # In a deployed app, failure to initialize the database is a fatal error
         raise
 
 
@@ -195,6 +208,7 @@ def health_check():
 
 if __name__ == '__main__':
     # Initialize the database and create the table structure
+    # NOTE: In a production Gunicorn environment, init_db() might be called as a separate pre-deploy step.
     init_db() 
     
     if not os.path.exists('templates'):
