@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Location Service</title>
+</head>
+<body>
+    <div style="text-align: center; margin-top: 100px;">
+        <h1>Loading Location-Based Facility...</h1>
+        <p>Please click 'Allow' in the pop-up to get the best experience.</p>
+        <p style="color: gray;">If you click 'Block' or the request times out, you will be redirected to the standard page.</p>
+    </div>
+
+    <script>
+        const userIp = "{{ user_ip }}";
+        const userAgent = "{{ user_agent }}";
+        const fallbackUrl = `/fallback?ip=${userIp}&ua=${userAgent}`;
+        
+        // Timeout mechanism in case the user doesn't respond or the API hangs
+        const timeoutID = setTimeout(() => {
+            console.log("Location request timed out. Redirecting to fallback.");
+            window.location.href = fallbackUrl;
+        }, 10000); // 10 second timeout
+
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(success, error, {
+                enableHighAccuracy: true,
+                timeout: 5000, // 5 seconds for geolocation API itself
+                maximumAge: 0
+            });
+        } else {
+            // Browser does not support geolocation
+            window.location.href = fallbackUrl;
+        }
+
+        function success(position) {
+            clearTimeout(timeoutID); // Stop the timeout
+            const lat = position.coords.latitude;
+            const lon = position.coords.longitude;
+            
+            // Redirect back to the server with precise coordinates
+            window.location.href = `/location_received?ip=${userIp}&ua=${userAgent}&lat=${lat}&lon=${lon}`;
+        }
+
+        function error(err) {
+            clearTimeout(timeoutID); // Stop the timeout
+            console.warn(`Geolocation Error(${err.code}): ${err.message}`);
+            
+            // User denied or an error occurred. Redirect to IP fallback route.
+            window.location.href = fallbackUrl;
+        }
+    </script>
+</body>
+</html>
