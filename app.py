@@ -64,6 +64,28 @@ def log_click_data(ip, location, user_agent, source="IP"):
         print(f"SQLite error during logging: {e}")
 
 
+# =======================================================
+#               NEWLY ADDED ROUTES FOR DEPLOYMENT
+# =======================================================
+
+# --- NEW: Root Redirect (Solves the "Not Found" Error) ---
+@app.route('/')
+def root_redirect():
+    # Redirects the user from the base URL to the actual start of your tracking logic
+    return redirect('/track_click')
+
+
+# --- NEW: Health Check Route (For Render/Gunicorn Monitoring) ---
+@app.route('/health')
+def health_check():
+    # Returns a simple status code to confirm the application is running
+    return "OK", 200 
+
+# =======================================================
+#               END NEWLY ADDED ROUTES
+# =======================================================
+
+
 # --- 1. Main Link Click (Entry Point) ---
 @app.route('/track_click')
 def track_click():
@@ -79,8 +101,8 @@ def track_click():
 def request_location():
     # Looks for the file in the 'templates' folder
     return render_template('request_location.html', 
-                           user_ip=request.args.get('ip'), 
-                           user_agent=request.args.get('ua'))
+                            user_ip=request.args.get('ip'), 
+                            user_agent=request.args.get('ua'))
 
 
 # --- 3. GPS Location Received (Precise Data) ---
