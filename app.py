@@ -12,7 +12,7 @@ app = Flask(__name__)
 FINAL_DESTINATION_URL = "https://www.google.com/search?q=location+based+facility+provided"
 DATABASE_FILE = 'click_tracker.db'
 
-# --- Database Setup (No Change) ---
+# --- Database Setup ---
 def init_db():
     conn = sqlite3.connect(DATABASE_FILE)
     cursor = conn.cursor()
@@ -25,14 +25,14 @@ def init_db():
             city TEXT,
             latitude REAL,
             longitude REAL,
-            source TEXT,  /* New: 'IP' or 'GPS' */
+            source TEXT, 
             user_agent TEXT
         )
     """)
     conn.commit()
     conn.close()
 
-# --- Database Logging Function (Updated with 'source') ---
+# --- Database Logging Function ---
 def log_click_data(ip, location, user_agent, source="IP"):
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
@@ -51,7 +51,6 @@ def log_click_data(ip, location, user_agent, source="IP"):
         conn = sqlite3.connect(DATABASE_FILE)
         cursor = conn.cursor()
         
-        # NOTE: Updated column list to include 'source'
         cursor.execute("""
             INSERT INTO clicks (timestamp, ip_address, country, city, latitude, longitude, source, user_agent) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -66,23 +65,19 @@ def log_click_data(ip, location, user_agent, source="IP"):
 
 
 # --- 1. Main Link Click (Entry Point) ---
-# The user's link will point here. Instead of redirecting, it asks for location.
 @app.route('/track_click')
 def track_click():
-    # Capture IP and user agent immediately
     user_ip = request.remote_addr 
     user_agent = request.headers.get('User-Agent', 'Unknown')
     
-    # Store these in Flask session or pass as query params (we pass as query for simplicity)
     # Redirect to the page that requests GPS location via JavaScript
     return redirect(f"/request_location?ip={user_ip}&ua={user_agent}")
 
 
 # --- 2. Location Request Page (Serves HTML with JS) ---
-# This is the page where the user sees the "Share Location?" pop-up.
 @app.route('/request_location')
 def request_location():
-    # Pass the IP and User Agent data through to the JavaScript success/error paths
+    # Looks for the file in the 'templates' folder
     return render_template('request_location.html', 
                            user_ip=request.args.get('ip'), 
                            user_agent=request.args.get('ua'))
@@ -103,10 +98,7 @@ def location_received():
         "longitude": float(lon)
     }
 
-    # Log the precise GPS data
     log_click_data(ip, location_data, ua, source="GPS")
-
-    # This is where you would integrate the location data with your service.
     print(f"--- FINAL GPS Location for Facility --- Lat: {lat}, Lon: {lon}")
     
     # Redirect to final destination (e.g., a map, or a localized version of your page)
@@ -128,11 +120,10 @@ def fallback():
     # Log the general IP data
     log_click_data(ip, location_data, ua, source="IP_FALLBACK")
     
-    # Redirect to the standard destination
     return redirect(FINAL_DESTINATION_URL)
 
 
-# --- 5. View Logs (Added 'source' column) ---
+# --- 5. View Logs (Admin Route) ---
 @app.route('/view_logs')
 def view_logs():
     if not os.path.exists(DATABASE_FILE):
@@ -140,7 +131,6 @@ def view_logs():
 
     conn = sqlite3.connect(DATABASE_FILE)
     cursor = conn.cursor()
-    # NOTE: Select statement updated to include 'source'
     cursor.execute("SELECT id, timestamp, ip_address, country, city, latitude, longitude, source, user_agent FROM clicks ORDER BY timestamp DESC")
     logs = cursor.fetchall()
     conn.close()
@@ -153,24 +143,10 @@ def view_logs():
     return render_template_string(html)
 
 
-# --- Debugging Route (No Change) ---
-@app.route('/test_ip_lookup', methods=['GET', 'POST'])
-def test_ip_lookup():
-    # ... (code from previous response, uses ip_locator.py)
-    # NOTE: Omitted for brevity, include the full version from previous responses
-    # ...
-    return render_template_string("<h1>Test IP Lookup</h1>...")
-
-
 if __name__ == '__main__':
-    # Initialize the database and create a 'templates' folder if it doesn't exist
     init_db() 
     if not os.path.exists('templates'):
         os.makedirs('templates')
     
-    print("\n" + "="*50)
     print("--- Flask GPS/IP Geolocation Tracker Running ---")
-    print(f"Tracking Link: http://127.0.0.1:5000/track_click")
-    print(f"*** REQUIRES HTTPS & DEPLOYMENT FOR GPS TO WORK ***")
-    print("="*50 + "\n")
     app.run(debug=True, host='127.0.0.1', port=5000)
