@@ -34,7 +34,6 @@ def get_db_connection():
         db_url = os.environ.get('DATABASE_URL')
     
     if not db_url:
-        # This exception is raised if neither the secret file nor the standard env var worked.
         raise Exception("DATABASE_URL environment variable is not set!")
     
     # 3. Connect to PostgreSQL
@@ -44,6 +43,7 @@ def get_db_connection():
 
 # --- Database Setup (PostgreSQL) ---
 def init_db():
+    """Initializes the PostgreSQL database, creating the 'clicks' table if it doesn't exist."""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -68,9 +68,9 @@ def init_db():
         print("--- POSTGRES DB INITIALIZED SUCCESSFULLY ---")
         
     except Exception as e:
-        # We need this print statement during deployment to debug connection failures
+        # This print statement is critical for debugging during the Pre-Deploy Command run
         print(f"--- POSTGRES CONNECTION/INIT ERROR: {e} ---")
-        # In a deployed app, failure to initialize the database is a fatal error
+        # Re-raise the exception so the Pre-Deploy command fails if the table couldn't be created
         raise
 
 
@@ -207,9 +207,8 @@ def health_check():
     return "OK", 200
 
 if __name__ == '__main__':
-    # Initialize the database and create the table structure
-    # NOTE: In a production Gunicorn environment, init_db() might be called as a separate pre-deploy step.
-    init_db() 
+    # 🔴 CRITICAL CHANGE: init_db() IS REMOVED HERE. 
+    # It must be run as a separate Python command during Render deployment setup.
     
     if not os.path.exists('templates'):
         os.makedirs('templates')
