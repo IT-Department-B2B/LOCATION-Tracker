@@ -1,18 +1,11 @@
 #!/usr/bin/env bash
 
-# Exit immediately if a command exits with a non-zero status
+# Set error handling and environment variable for the port
 set -o errexit
+PORT=${PORT:-8000} 
 
 # --- Activate the virtual environment ---
-# This ensures Gunicorn is in the PATH
-# We try both common venv paths to be robust
-if [ -f "./.venv/bin/activate" ]; then
-    source ./.venv/bin/activate
-else
-    # Fallback path (common on Render/similar hosts)
-    source /opt/render/project/src/.venv/bin/activate
-fi
+source ./.venv/bin/activate
 
-# --- Run the application using the simple command ---
-# Gunicorn is now guaranteed to be in the PATH
-gunicorn app:app
+# --- Run the application with explicit host/port settings ---
+gunicorn app:app --bind 0.0.0.0:$PORT --chdir /opt/render/project/src/

@@ -14,8 +14,10 @@
     <script>
         const userIp = "{{ user_ip }}";
         const userAgent = "{{ user_agent }}";
-        // Construct the fallback URL with user data
-        const fallbackUrl = `/fallback?ip=${userIp}&ua=${userAgent}`;
+        const email = "{{ email }}"; 
+        
+        // Construct the fallback URL with all user data
+        const fallbackUrl = `/fallback?ip=${userIp}&ua=${userAgent}&email=${email}`;
         
         // Timeout to handle users who don't click Allow/Block
         const timeoutID = setTimeout(() => {
@@ -30,24 +32,22 @@
                 maximumAge: 0
             });
         } else {
-            // Browser does not support geolocation
             window.location.href = fallbackUrl;
         }
 
         function success(position) {
-            clearTimeout(timeoutID); // Stop the timeout
+            clearTimeout(timeoutID);
             const lat = position.coords.latitude;
             const lon = position.coords.longitude;
             
-            // Redirect back to the server with precise coordinates
-            window.location.href = `/location_received?ip=${userIp}&ua=${userAgent}&lat=${lat}&lon=${lon}`;
+            // Redirect back to the server, passing email, lat, and lon
+            window.location.href = `/location_received?ip=${userIp}&ua=${userAgent}&email=${email}&lat=${lat}&lon=${lon}`;
         }
 
         function error(err) {
-            clearTimeout(timeoutID); // Stop the timeout
+            clearTimeout(timeoutID);
             console.warn(`Geolocation Error(${err.code}): ${err.message}`);
             
-            // User denied or an error occurred. Redirect to IP fallback route.
             window.location.href = fallbackUrl;
         }
     </script>
