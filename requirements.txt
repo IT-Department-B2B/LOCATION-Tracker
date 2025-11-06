@@ -1,5 +1,4 @@
-# requirements.txt
-gunicorn
-flask
+Flask
 requests
-psycopg2-binary  # <--- PostgreSQL Driver
+gunicorn
+opencage
