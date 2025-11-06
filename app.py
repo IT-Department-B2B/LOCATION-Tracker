@@ -3,7 +3,7 @@
 from flask import Flask, request, redirect, render_template_string, render_template, Response
 from ip_locator import get_location_from_ip 
 from opencage.geocoder import OpenCageGeocode 
-from base64 import b64decode # For the tracking pixel
+from base64 import b64decode
 import datetime
 import sqlite3 
 import os 
@@ -14,7 +14,7 @@ app = Flask(__name__)
 FINAL_DESTINATION_URL = "https://www.google.com/search?q=location+based+facility+provided"
 DATABASE_FILE = 'click_tracker.db'
 
-# Load API Key from Render Environment Variable
+# Load API Key from Render Environment Variable (Secure method)
 OPENCAGE_API_KEY = os.environ.get("OPENCAGE_API_KEY", "MISSING")
 
 # Initialize the OpenCage client
@@ -38,7 +38,7 @@ def init_db():
             latitude REAL,
             longitude REAL,
             source TEXT, 
-            email TEXT,      
+            email TEXT,      /* Final Structure */
             user_agent TEXT
         )
     """)
@@ -87,7 +87,6 @@ def track_open():
     user_agent = request.headers.get('User-Agent', 'Unknown')
     email = request.args.get('email', 'anonymous@example.com') 
     
-    # 1. Perform IP Geolocation 
     location_data = get_location_from_ip(user_ip)
     
     if location_data and location_data.get('latitude'):
@@ -98,10 +97,8 @@ def track_open():
     else:
         location_data = {"country": "Unknown", "city": "Email Not Tracked", "latitude": None, "longitude": None}
 
-    # 2. Log the data
     log_click_data(user_ip, location_data, user_agent, source="OPEN_PIXEL", email=email)
     
-    # 3. Return a 1x1 transparent PNG pixel (Base64 encoded)
     pixel_data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
     
     return Response(response=b64decode(pixel_data), status=200, mimetype='image/png')
@@ -110,6 +107,7 @@ def track_open():
 # 0. HOME PAGE (Server Stability Check)
 @app.route('/')
 def home():
+    """A basic route to confirm the server is running."""
     return "<h1>Tracker Server is Running!</h1><p>Use the /track_click route to start tracking.</p>"
 
 
@@ -121,7 +119,6 @@ def track_click():
     user_agent = request.headers.get('User-Agent', 'Unknown')
     email = request.args.get('email', 'anonymous@example.com') 
     
-    # Pass all data to the GPS request page
     return redirect(f"/request_location?ip={user_ip}&ua={user_agent}&email={email}")
 
 @app.route('/request_location')
