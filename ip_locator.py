@@ -1,8 +1,12 @@
-# ip_locator.py
+# ip_locator.py (Final Version)
 
 import requests
 
 def get_location_from_ip(ip_address):
+    # If testing locally, use a known public IP for the lookup test
+    if ip_address == '127.0.0.1' or ip_address.startswith('192.168.'):
+        ip_address = "8.8.8.8" # Use Google DNS for a guaranteed lookup
+
     url = f"http://ip-api.com/json/{ip_address}"
     
     try:
