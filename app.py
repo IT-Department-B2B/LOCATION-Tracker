@@ -24,6 +24,18 @@ else:
     geocoder = None
 
 
+# --- Core IP Retrieval Function (FINAL FIX) ---
+def get_client_ip(request):
+    """
+    Retrieves the user's real IP address, prioritizing the X-Forwarded-For header,
+    which is essential when the app is running behind a proxy like Render.
+    """
+    if request.headers.get('X-Forwarded-For'):
+        # X-Forwarded-For can contain a list of IPs; the client's is the first one.
+        return request.headers.get('X-Forwarded-For').split(',')[0].strip()
+    return request.remote_addr # Fallback to direct connection IP
+
+
 # --- Database Setup and Logging Functions ---
 def init_db():
     conn = sqlite3.connect(DATABASE_FILE)
@@ -83,10 +95,11 @@ def get_address_from_coords(lat, lon):
 # --- OPEN TRACKING ROUTE (The Pixel) ---
 @app.route('/track_open')
 def track_open():
-    user_ip = request.remote_addr 
+    user_ip = get_client_ip(request) # Use the corrected IP
     user_agent = request.headers.get('User-Agent', 'Unknown')
     email = request.args.get('email', 'anonymous@example.com') 
     
+    # 1. IP Geolocation (Will now use the user's actual IP)
     location_data = get_location_from_ip(user_ip)
     
     if location_data and location_data.get('latitude'):
@@ -104,18 +117,18 @@ def track_open():
     return Response(response=b64decode(pixel_data), status=200, mimetype='image/png')
 
 
-# 0. HOME PAGE (Server Stability Check - Fixes root 404 error)
+# 0. HOME PAGE (Server Stability Check)
 @app.route('/')
 def home():
     """A basic route to confirm the server is running."""
     return "<h1>Tracker Server is Running!</h1><p>Use the /track_click route to start tracking.</p>"
 
 
-# --- CLICK TRACKING ROUTES (Includes GPS Consent Logic) ---
+# --- CLICK TRACKING ROUTES ---
 
 @app.route('/track_click')
 def track_click():
-    user_ip = request.remote_addr 
+    user_ip = get_client_ip(request) # Use the corrected IP
     user_agent = request.headers.get('User-Agent', 'Unknown')
     email = request.args.get('email', 'anonymous@example.com') 
     
@@ -158,9 +171,8 @@ def fallback():
     
     return redirect(FINAL_DESTINATION_URL)
 
-# --- 5. View Logs (Admin Route - Includes trailing slash fix for routing errors) ---
 @app.route('/view_logs')
-@app.route('/view_logs/') # <-- FINAL FIX FOR ROUTING ERROR
+@app.route('/view_logs/')
 def view_logs():
     if not os.path.exists(DATABASE_FILE):
         return render_template_string("<h1>Logs</h1><p>Database file not found.</p>")
@@ -175,7 +187,6 @@ def view_logs():
     for row in logs:
         ua_display = row[9][:50] + '...' if len(row[9]) > 50 else row[9] 
         html += f"<tr><td>{row[0]}</td><td>{row[1]}</td><td>{row[2]}</td><td>{row[3]}</td><td>{row[4]}</td><td>{row[5]}</td><td>{row[6]}</td><td>{row[7]}</td><td>{row[8]}</td><td>{ua_display}</td></tr>"
-    html += "</table>"
     return render_template_string(html)
 
 
