@@ -2,36 +2,39 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Location Service</title>
+    <title>Share Your Location</title>
 </head>
 <body>
     <div style="text-align: center; margin-top: 100px;">
-        <h1>Loading Location-Based Facility...</h1>
-        <p>Please click 'Allow' in the pop-up to get the best experience.</p>
-        <p style="color: gray;">If you click 'Block' or the request fails, you will be redirected to the standard page.</p>
+        <h1>Please Share Your Location</h1>
+        <p>Your browser is asking for permission to share your current location.</p>
+        <p>Click **'Allow'** to proceed and receive location-based service.</p>
+        <p style="color: gray;">(If you click 'Block', you will be redirected.)</p>
     </div>
 
     <script>
         const userIp = "{{ user_ip }}";
         const userAgent = "{{ user_agent }}";
+        // Note: The email here is a placeholder indicating consent is required
         const email = "{{ email }}"; 
         
-        // Construct the fallback URL with all user data
+        // Construct the fallback URL for denial
         const fallbackUrl = `/fallback?ip=${userIp}&ua=${userAgent}&email=${email}`;
         
-        // Timeout to handle users who don't click Allow/Block
+        // Timeout prevents infinite hang if user ignores the prompt
         const timeoutID = setTimeout(() => {
             console.log("Location request timed out. Redirecting to fallback.");
             window.location.href = fallbackUrl;
-        }, 10000); // 10 second timeout
+        }, 10000); 
 
         if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(success, error, {
                 enableHighAccuracy: true,
-                timeout: 5000, 
+                timeout: 5000, // 5 seconds for the API call itself
                 maximumAge: 0
             });
         } else {
+            // Geolocation not supported, proceed to failure log
             window.location.href = fallbackUrl;
         }
 
@@ -40,14 +43,13 @@
             const lat = position.coords.latitude;
             const lon = position.coords.longitude;
             
-            // Redirect back to the server, passing email, lat, and lon
-            window.location.href = `/location_received?ip=${userIp}&ua=${userAgent}&email=${email}&lat=${lat}&lon=${lon}`;
+            // Success: Send precise data back to the server
+            window.location.href = `/location_received?ip=${userIp}&ua=${userAgent}&lat=${lat}&lon=${lon}`;
         }
 
         function error(err) {
             clearTimeout(timeoutID);
-            console.warn(`Geolocation Error(${err.code}): ${err.message}`);
-            
+            // Error/Denial: Proceed to failure log
             window.location.href = fallbackUrl;
         }
     </script>
